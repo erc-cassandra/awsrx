@@ -1,6 +1,7 @@
 #! /usr/bin/python2.7
 #coding=cp850
 #mcit@geus.dk
+# CASSANDRA version from 22/07/2021 onwards andrew.tedstone@unifr.ch
 #
 #rev. 21/3/2017 - add publish_to_ftp() and implement delivery of raw Freya data to ZAMG
 #rev. 13/7/2017 - allow glob-style wildcards in filename passed to publish_to_ftp
@@ -26,6 +27,10 @@
 #     08/11/2019  now error messages print the full traceback including line number
 #     ??          did I fix the gps decoding at some point and forgot? It works now
 #     22/09/2020  cleanup some of the unused code and outdated comments before uploading to github
+# ----------------
+#     22/07/2021  UniFR CASSANDRA implementation - stripped out GEUS-specific codes, 
+#                 updated message body format to match Rock7 delivery, 
+#                 added FS2 telemetry format.
 
 from sorter import sorter
 from tailer import tailer
@@ -54,67 +59,21 @@ from ConfigParser import SafeConfigParser
 from glob import glob
 from collections import OrderedDict
 
-#hack=True for using promice@asterix2.citterio.net if the mailserver is up
-hack = False
 
 programs_dir = os.sep.join(('..', 'logger_programs'))
 
-credentials_file = "credentials.ini" # this should be somewhere secure
+credentials_file = "" # this should be somewhere secure
 accounts_ini = SafeConfigParser()
 accounts_ini.readfp(open('accounts.ini'))
-accounts_ini.read(credentials_file) #optional, contains passwords, keep private
+#accounts_ini.read(credentials_file) #optional, contains passwords, keep private
+
+allowed_sender_domains = ['rockblock.rock7.com', 'unifr.ch']
 
 imei_file = 'imei2name.ini'
 imei_ini = SafeConfigParser()
 imei_ini.readfp(open(imei_file))
 imei_names = dict(imei_ini.items('imei_to_name'))
-old= {300234061470510: 'QAS_U',
-           300234061476520: 'KAN_M',
-           300234061478500: 'UPE_L',
-           300234061479480: 'GEUS',
-           300234061293280: 'KAN_L',
-           300234061295270: 'NUK_U',
-           300234061852400: 'ZAMG',
-           300234061165160: 'KAN_U',
-           300234061299270: 'NUK_K',
-           300234061627590: 'EGP',
-           300234061217540: 'UWN',
-           300034012250840: 'THU_L',
-           300034012252840: 'THU_U',
-           300234064121930: 'CEN_T',
-           300234064126980: 'KPC_L',
-           300034012256830: 'KAN_B',
-           300034012388310: 'ZAK_T',
-           300034012437350: 'ZAK_M',
-           300034012699980: 'QAS_L',
-           300034012776170: 'UPE_U',
-           300034012931510: 'KPC_U',
-           300034012932510: 'SCO_U',
-           300034012934080: 'SCO_L',
-           300234061218580: 'MIT',
-           300234061218540: 'QAS_A',
-           300234011039970: 'TAS_A',
-           300234010884770: 'TAS_L',
-           300034012930510: 'GEUS',
-           300234061473490: 'CEN',
-           300234065156620: 'DIS',
-           300234065153530: 'THU_L (NEW)',
-           300234065158630: 'THU_U (NEW)',
-           300234065151610: 'SCO_L (NEW)',
-           300234065157600: 'SCO_U (NEW)',
-           300234065154530: 'QAS_M (NEW)',
-           300034012712460: 'GEUS',
-           300034012121000: 'GEUS',
-           300234010718970: 'XXX',
-           300034012719450: 'GEUS',
-           300034012255830: 'GEUS',
-           300034012259830: 'GEUS',
-           300034013020180: 'GEUS',
-           300234061299270: 'XXX',
-           300034012200840: 'XXX',
-           300034012200840: 'XXX',
-           300034012779170: 'GEUS',
-           }
+
 
 
 def parse_declaration(norm_code):
@@ -385,9 +344,6 @@ class IMAP4_TLS(imaplib.IMAP4_SSL):
         #)
         self.file = self.sslobj.makefile('rb')
 
-if hack: 
-    class IMAP4_TLS(imaplib.IMAP4): pass
-
 
 class EmailMessageError(Exception): pass
 class SbdMessageError(Exception): pass
@@ -431,22 +387,18 @@ class EmailMessage(object):
 
 class SbdMessage(EmailMessage):
 
-    data_entries = {'MOMSN': 'momsn',
-                   'MTMSN': 'mtmsn',
-                   'Time of Session (UTC)': 'session_utc',
-                   'Session Status': 'session_status',
-                   'Message Size (bytes)': 'message_size',
-                   'Unit Location': 'unit_location',
-                   'CEPradius': 'cep_radius'
+    data_entries = {'IMEI': 'imei',
+                    'MOMSN': 'momsn',
+                   'Transit Time': 'session_utc',
+                   'Iridium Session Status': 'session_status',
+                   'Iridium CEP': 'cep_radius'
                    }
 
-    data_decoders = {'MOMSN': '_parse_int',
-                     'MTMSN': '_parse_int',
-                     'Time of Session (UTC)': '_parse_str',
-                     'Session Status': '_parse_session_status',
-                     'Message Size (bytes)': '_parse_int',
-                     'Unit Location': '_parse_unit_location',
-                     'CEPradius': '_parse_int'
+    data_decoders = {'IMEI': '_parse_int',
+                     'MOMSN': '_parse_int',
+                     'Transit Time': '_parse_str',
+                     'Iridium Session Status': '_parse_int',
+                     'Iridium CEP': '_parse_float'
                      }
 
     def __init__(self, sbd):
@@ -460,25 +412,31 @@ class SbdMessage(EmailMessage):
     def validate_sbd(self, sbd):
 
         sender = self.data['email_data']['from']
-        if 'sbdservice' not in sender and 'ice@geus.dk' not in sender:
+        # There is a trailing '>' character, remove it.
+        sender_domain = sender.split('@')[1][:-1]
+        print(sender_domain)
+        if sender_domain not in allowed_sender_domains:
             raise NotSbdMessageError("'sbdservice' not in %s" % sender)
         if len(self.data['email_data']['attached_filenames']) == 0:
             warnings.warn('sbd email %s %s has no *.sbd attachment' % (self.data['email_data']['date'],
                                                                        self.data['email_data']['subject']))
         for fn in self.data['email_data']['attached_filenames']:
             root, ext = os.path.splitext(fn)
-            if ext != '.sbd':
+            if (ext != '.sbd') and (ext != '.bin'):
                 raise NotSbdMessageError("attachment %s not .sbd" % fn)
 
 
     def parse_sbd(self):
-
+        print(self._email_msg.get_payload())
         if self._email_msg.is_multipart():
+            print('multipart')
         #try:
             content, attachment = self._email_msg.get_payload()
             assert not content.is_multipart() #else the decode=True on the next line makes it return None and break the rest of the parsing
             body = content.get_payload(decode=True)
+
         else:
+            print('not multipart')
         #except ValueError:
             content = self._email_msg.get_payload(decode=True)#[0]
             attachment = None  #sometimes an email arrives with no .sbd attached
@@ -492,13 +450,13 @@ class SbdMessage(EmailMessage):
                     #decoder = partial(decoder, key, (': ', ' = '))
                     sbd_data[entry] = decoder(key, (': ', ' = '), line)
 
-        imei, = re.findall(r'[0-9]+', self.data['email_data']['subject'])
-        sbd_data['imei'] = imei
-
         if attachment != None:
+            print(attachment)
             sbd_payload = attachment.get_payload(decode=True)
-            assert len(sbd_payload) == sbd_data['message_size']
+            # Rock7 SBD messages do not provide message size.
+            #assert len(sbd_payload) == sbd_data['message_size']
             sbd_data['payload'] = sbd_payload
+            print(sbd_payload)
         else:
             sbd_data['payload'] = None
 
@@ -514,6 +472,17 @@ class SbdMessage(EmailMessage):
             else:
                 break
         return int(val)
+
+    @staticmethod
+    def _parse_float(label, seps, string):
+        for s in seps:
+            try:
+                _, val = string.split(label + s)
+            except ValueError:
+                continue
+            else:
+                break
+        return float(val)
 
     @staticmethod
     def _parse_str(label, seps, string):
@@ -558,76 +527,7 @@ class SbdMessage(EmailMessage):
         return location
 
 
-
-class TrackerMessage(SbdMessage):
-
-    payload_fmt = {0x06: '<BBBffHHHB',
-                   0x86: '<BBBBffHHHB',
-                   }
-
-    def __init__(self, tracker_sbd):
-        super(TrackerMessage, self).__init__(tracker_sbd)
-        self.validate(tracker_sbd)
-        self.data['tracker_data'] = self.parse_tracker()
-        pass
-
-    def validate(self, tracker_sbd):
-        if self.data['sbd_data']['payload'] == None:
-            raise NotAwsMessageError('no .sbd file attached to this SBD message')
-        fmt = ord(self.data['sbd_data']['payload'][0])
-        if fmt not in self.payload_fmt:
-            raise NotTrackerMessageError("first byte '%' not in %s" %(fmt, self.payload_fmt.keys()))
-
-    def parse_tracker(self, external=True):
-        #external=True uses the sbdunpacker.exe tool so it won't work on the
-        #linux server. But external=False is not yet implemented (the binary format is
-        #understandable but messy
-
-        tracker_data = {}
-        understood = False
-
-        if external:
-            with open('temp.sbd', 'wb') as in_f:
-                in_f.write(self.data['sbd_data']['payload'])
-            output = sp.check_output('tracker_SBDUnpacker.exe temp.sbd') #TODO: exception handling
-            voltage = -9999
-            for l in output.splitlines():
-                if l.startswith('Fix'):
-                    understood = True
-                    fixes = tracker_data.get('fixes', [])
-                    fix = ','.join(l.replace(',', ' ').split()[2:])
-                    fix = '%s,%s' %(fix, voltage)
-                    fixes.append(fix)
-                    tracker_data['fixes'] = fixes
-                elif l.startswith('Input'):
-                    understood = True
-                    voltage = l.split()[-1]
-                    voltage = float(voltage.replace('V', ''))
-                    #print voltage
-        else:
-            raise NotImplementedError('tracker parser implementation is incomplete')
-            #fmt = self.data['sbd_data']['payload'][0]
-            #data = self.data['sbd_data']['payload'][1:]
-
-            #tracker_data = {}
-            #tracker_data['format'] = ord(fmt)
-
-            #record_len = struct.calcsize(self.payload_fmt[tracker_data['format']])
-            #records_count = len(data) / record_len
-            #assert records_count % record_len == 0
-
-        if not understood:
-            raise TrackerMessageError('failed to decode message UID %s, permanently skipping it' %self.data['sbd_data']['imei'])
-        if 'fixes' not in tracker_data:
-            raise TrackerMessageError('message UID %s contains no fix, permanently skipping it' %self.data['sbd_data']['imei'])
-
-        return tracker_data
-
-
 FilterMalformed = True
-
-#TODO: get all this config from the parsed CR-basic logger program, for now this is carried over 
-# from the 2010 version speaking MAPI to the old GEUS Exchange server, look there for more comments
 
 # *** START OF MESSAGE FORMAT SPECIFICATIONS FOR NORMAL USERS ***
 # Here the format of the binary data is defined. The keys of the FormatSpec dictionary
@@ -661,52 +561,9 @@ type_len = {'f': 2, # value encoded as 2 bytes base-10 floating point (GFP2)
             }
 
 payload_fmt = { #Promice 2009, 2010 
-                5: [13, "tffffffffffff", "Promice 2009 summer message"], #this means: expect 13 values: 1 of type 't' and 12 of type 'f', and display this as "Promice..."
-                6: [39, "tfffffffffffffffffffffffffgneffffffffff", "Promice 2009 summer message (+ instant.)"],
-                7: [13, "tffffffffffff", "Promice 2009 winter message"],
-                8: [39, "tfffffffffffffffffffffffffgneffffffffff", "Promice 2009 winter message (+ instant.)"],
-                9: [06, "tfffff", "Promice 2009 diagnostic message"],
-                #GlacioBasis 2009 Main
-                10: [49, "tfffffffffffffffffffffffffffffffffffgneffffffffff", "GlacioBasis 2009 Main 1-h summer message"],
-                11: [56, "tfffffffffffffffffffffffffffffffffffgnefffffffffffffffff", "GlacioBasis 2009 Main 1-h summer message (+ instant.)"],
-                12: [49, "tfffffffffffffffffffffffffffffffffffgneffffffffff", "GlacioBasis 2009 Main 3-h winter message"],
-                13: [56, "tfffffffffffffffffffffffffffffffffffgnefffffffffffffffff", "GlacioBasis 2009 Main 3-h winter message (+ instant.)"],
-                14: [22, "tfffffffffffffffffffff", "GlacioBasis 2009 Main diagnostic message"],
-                #Quadra Mining2009
-                15: [33, "tfffffffffffffffffffffffffgneffff", "Quadra 2009 3-h summer message"],
-                16: [0, "", "unused"],
-                17: [33, "tfffffffffffffffffffffffffgneffff", "Quadra 2009 24-h winter message"],
-                18: [0, "", "unused"],
-                19: [06, "tfffff", "Quadra 2009 diagnostic message"],
-                #GlacioBasis 2009 Top
-                20: [41, "tfffffffffffffffffffffffffffffffffgneffff", "GlacioBasis 2009 Top 1-h summer message"],
-                21: [0, "", "unused"],
-                22: [41, "tfffffffffffffffffffffffffffffffffgneffff", "GlacioBasis 2009 Top 6-h winter message"],
-                23: [0, "", "unused"],
-                24: [22, "tfffffffffffffffffffff", "GlacioBasis 2009 Top diagnostic message"],
-                #Sermilik 2010 (corresponds to BinaryTxFormatRevision = 5 in the datalogger program)
-                25: [13, "tffffffffffff", "Sermilik 2009 1-h summer message"],
-                26: [39, "tfffffffffffffffffffffffffgneffffffffff", "Sermilik 2009 1-h summer message (+ instant.)"],
-                27: [13, "tffffffffffff", "Sermilik 2009 6-h winter message"],
-                28: [39, "tfffffffffffffffffffffffffgneffffffffff", "Sermilik 2009 6-h winter message (+ instant.)"],
-                29: [06, "tfffff", "Sermilik 2009 diagnostic message"],
-                #Promice 2015-
-                30: [12, "tfffffffffff", "Promice 2015 summer message"], #there is 1 f less (wind variability)
-                31: [37, "tffffffffffffffffffffffffgnefffffffff", "Promice 2015 summer message (+ instant.)"],#there are 2 f less (wind variability, wind var. instantaneous)
-                32: [12, "tfffffffffff", "Promice 2015 winter message"], #there is 1 f less (wind variability)
-                33: [37, "tffffffffffffffffffffffffgnefffffffff", "Promice 2015 winter message (+ instant.)"],#there are 2 f less (wind variability, wind var. instantaneous)
-                34: [06, "tfffff", "Promice 2015 diagnostic message"],
-                #Camp Century 2017-
-                35: [53, "tffffffffffffffffffffffffffffffffffffffffffffffffffff", "Camp Century 2017 summer message"],
-                36: [0, "", "no summer message (+ instant.)"],
-                37: [53, "tffffffffffffffffffffffffffffffffffffffffffffffffffff", "Camp Century 2017 summer message"],
-                38: [0, "", "no winter message (+ instant.)"],
-                #GlacioBasis+DMI 2018
-                40: [14, "tfffffffffffff", "GlacioBasis+DMI 2018 summer message"], #there is 2 more than promice 2015 (T_IR, IR_T)
-                41: [39, "tffffffffffffffffffffffffffgnefffffffff", "GlacioBasis+DMI 2018 summer message (+ instant.)"],#there is 2 more than promice 2015 (T_IR, IR_T)
-                42: [14, "tfffffffffffff", "GlacioBasis+DMI 2018 winter message"], #there is 2 more than promice 2015 (T_IR, IR_T)
-                43: [39, "tffffffffffffffffffffffffffgnefffffffff", "GlacioBasis+DMI 2018 winter message (+ instant.)"],#there is 2 more than promice 2015 (T_IR, IR_T)
-                44: [06, "tfffff", "GlacioBasis+DMI 2018 diagnostic message"],
+                #5: [13, "tffffffffffff", "Promice 2009 summer message"], #this means: expect 13 values: 1 of type 't' and 12 of type 'f', and display this as "Promice..."
+                #6: [39, "tfffffffffffffffffffffffffgneffffffffff", "Promice 2009 summer message (+ instant.)"],
+                30: [24, "tfffffffffffffffffffffff", 'CASSANDRA FS2'],
                 #placeholders for illegal format numbers (reserved for ascii decimal numbers, codes 48 for '0' to 57 for '9')
                 48: [0, '', 'placeholder for uncompressed ascii'],
                 49: [0, '', 'placeholder for uncompressed ascii'],
@@ -717,26 +574,9 @@ payload_fmt = { #Promice 2009, 2010
                 54: [0, '', 'placeholder for uncompressed ascii'],
                 55: [0, '', 'placeholder for uncompressed ascii'],
                 56: [0, '', 'placeholder for uncompressed ascii'],
-                57: [0, '', 'placeholder for uncompressed ascii'],
+                57: [0, '', 'placeholder for uncompressed ascii']
                 #THIS IS THE FIRST UNUSED FORMAT (will match BinaryTxFormatRevision = 12 in the logger program)
-                60: [1, "t", "new summer message"], #
-                61: [1, "t", "new summer message (+ instant.)"],#
-                62: [1, "t", "new winter message"], #
-                63: [1, "t", "new winter message (+ instant.)"],#
-                64: [1, "t", "new diagnostic message"],
-                #THE VERSION-3
-                #75: [38, "tfffffffffffFFfffgneffffffffffffffffff", 'THE VERSION-3!'], #note the debug FF letters for the sonic rangers
-                #70: [37, "tffffffffffffffffffffffffgnefffffffff", 'THE VERSION-3!'], # New version 2020-01-23. note the debug FF letters for the sonic rangers
-                75: [38, "tffffffffffffffffgneffffffffffffffffff", 'THE VERSION-3!'], #note the debug FF letters for the sonic rangers
-                #75: [37, "tffffffffffffffffgneffffffffffffffffff", 'THE VERSION-3!'], #note the debug FF letters for the sonic rangers
-                #80: [37, "tffffffffffffffffffffffffgnefffffffff", 'THE VERSION-3!'], # New version 2020-01-23. note the debug FF letters for the sonic rangers
-                80: [40, "tfffffffffffffffffffffffffffffffffffffff", 'THE VERSION-3!'], # New version 2020-01-23. note the debug FF letters for the sonic rangers
-                #ZAMG Freya aws
-                220: [29, "tfffffffffffffffffffffffnefff", "ZAMG Freya 2015 summer message"],
-                221: [0, "", ""],
-                222: [29, "tfffffffffffffffffffffffnefff", "ZAMG Freya 2015 winter message"],
-                223: [0, "", ""],
-                224: [06, "tfffff", "ZAMG Freya 2015 diagnostic message"],
+                #60: [1, "t", "new summer message"], #
                 }
 
 for item in payload_fmt.items():
@@ -787,8 +627,7 @@ class AwsMessage(SbdMessage):
         IsTooLong = False
         IsTooShort = False
         if len(DataLine) == 0: raise AwsMessageError()
-        if DataLine[0].isdigit() or (DataLine[0:2] == '\n"' and #special-case hack for CENT_T in 2017-2018
-                                     self.data['sbd_data']['imei'] == 300234064121930):
+        if DataLine[0].isdigit():
             IsKnownBinaryFormat = False
             MessageFormatNum = -9999
         else:
@@ -996,10 +835,9 @@ def connect(host, port, user, passw):
     mail_server = IMAP4_TLS(host, port)
 
     # verify TLS is allright before disclosing login credentials
-    if not hack:
-        context = mail_server.ssl().context
-        assert context.check_hostname
-        ssl.match_hostname(mail_server.sslobj.getpeercert(), host)
+    context = mail_server.ssl().context
+    assert context.check_hostname
+    ssl.match_hostname(mail_server.sslobj.getpeercert(), host)
 
     mail_server.login(user, passw)
 
@@ -1056,80 +894,11 @@ def publish_to_ftp(filename, host, user, passwd, acct='', path='.', passive=True
             ftp.close()
     
     
-def getmytrackerdata(account=None, password=None, server='imap.gmail.com', port=993):
-    
-    print 'GPS data from server %s, account %s' %(server, account)
-    
-    account = account or raw_input('account: ')
-    password = password or raw_input('password: ')
-    server = server or raw_input('server: ')
-    port = port or raw_input('port: ')
-
-    out_dir = os.sep.join(('..', 'tracker_data'))
-    
-    try:
-        with open('last_tracker_uid.ini', 'r') as last_uid_f:
-            last_uid = int(last_uid_f.readline())
-    except Exception:
-        last_uid = 1
-    
-    try:
-        mail_server = connect(server, port, account, password)
-    
-        #resp = mail_server.list()
-        #assert resp[0].upper() == 'OK'
-    
-        result, data = mail_server.select(mailbox='INBOX', readonly=True)
-        print 'mailbox contains %s messages' %data[0]
-    
-        modified_files = set() # FIXME: sorter now expects a dict, not a set, so this errors later on
-
-        for uid, mail in new_mail(mail_server, last_uid=last_uid):
-    
-            message = email.message_from_string(mail)
-            try:
-                tracker_msg = TrackerMessage(message)
-            except (ValueError, TrackerMessageError), e:
-                print e.message
-                with open('last_tracker_uid.ini', 'w') as last_uid_f:
-                    last_uid_f.write(uid)
-                continue
-    
-            #remembering the uid allows skipping messages certainly done already,
-            #but a crash between the data save and the update of last_uid will
-            #result in duplicating the last message (i.e., this does not replace
-            #duplicate checking before parsing/appending, which is still TODO)
-    
-            out_fn = 'TRACKER_%s.txt' %tracker_msg.data['sbd_data']['imei']
-            out_path = os.sep.join((out_dir, out_fn))
-
-            modified_files.add(out_path)
-            
-            with open(out_path, mode='a') as out_f:
-                for fix in tracker_msg.data['tracker_data']['fixes']:
-                    out_f.write('%s\n' %fix)
-    
-            with open('last_tracker_uid.ini', 'w') as last_uid_f:
-                last_uid_f.write(uid)
-
-        sorter(modified_files)
-                
-    except Exception, e:
-        traceback.print_exc(file=sys.stdout)
-        #print e
-        
-    finally:
-        if 'mail_server' in locals():
-            print 'closing', account
-            mail_server.close()
-            resp = mail_server.logout()
-            assert resp[0].upper() == 'BYE'
-
 
 def getmyawsdata(account=None, 
                  password=None, 
-                 server='imap.gmail.com' if not hack else 'promice.citterio.net', 
-                 port=993 if not hack else 3993,
+                 server='imap.gmail.com', 
+                 port=993,
                  ):
     
     programs = glob(os.sep.join((programs_dir, '*.cr1')))
@@ -1145,10 +914,10 @@ def getmyawsdata(account=None,
     server = server or raw_input('server: ')
     port = port or raw_input('port: ')
     
-    out_dir = os.sep.join(('..', 'aws_data'))
+    out_dir = os.sep.join(('/scratch', 'aws_data'))
 
     try:
-        with open('last_aws_uid.hack.ini' if hack else 'last_aws_uid.ini', 'r') as last_uid_f:
+        with open('last_aws_uid.ini', 'r') as last_uid_f:
             last_uid = int(last_uid_f.readline())
     except Exception:
         last_uid = int(raw_input('last_aws_uid.ini not found, first UID? (deafult = 1)') or 1)
@@ -1174,8 +943,6 @@ def getmyawsdata(account=None,
                 print e
                 continue
             
-            if hack: print aws_msg.data['sbd_data']['imei']
-            
             #if aws_msg.data['sbd_data']['imei'] != 300234061852400: continue
         
             #remembering the uid allows skipping messages certainly done already,
@@ -1199,13 +966,9 @@ def getmyawsdata(account=None,
                 #if write_header:
                     #out_f.write('%s\n' % headers.get(aws_msg.data['aws_data']['firstbyte_fmt'], ''))
     
-            with open('last_aws_uid.hack.ini' if hack else 'last_aws_uid.ini', 'w') as last_uid_f:
+            with open('last_aws_uid.ini', 'w') as last_uid_f:
                 last_uid_f.write(uid)
 
-        #if hack:
-            #sorter(glob.glob(os.sep.join((out_dir, 'AWS*.txt'))))
-        #else:
-            #sorter(modified_files)
             
     except Exception, e:
         traceback.print_exc(file=sys.stdout)
@@ -1291,19 +1054,7 @@ def main(argv):
         password_aws = accounts_ini.get('aws', 'password')
         if not password_aws:
             password_aws = raw_input('password for AWS email account: ')
-            
-        password_trackers = accounts_ini.get('trackers', 'password')
-        if not password_trackers:
-            password_trackers = raw_input('password for trackers email account: ')
-            
-        password_zamg_ftp = accounts_ini.get('zamg_ftp', 'password')
-        if not password_zamg_ftp:
-            password_zamg_ftp = raw_input('password for zamg ftp account: ')
-            
-        password_uwn_ftp = accounts_ini.get('uwn_ftp', 'password')
-        if not password_uwn_ftp:
-            password_uwn_ftp = raw_input('password for Uni. West Norway ftp account: ')
-            
+                        
         while interval:
             try:
                 modified_files = getmyawsdata(accounts_ini.get('aws', 'account'),
@@ -1320,61 +1071,21 @@ def main(argv):
                                #'geus',
                                #path='geus/mcit/to_ZAMG_Vienna',
                                #)
-                publish_to_ftp(r"O:\AWSmessages_current\aws_data\AWS_300234061852400.txt",
-                               accounts_ini.get('zamg_ftp', 'server'),
-                               accounts_ini.get('zamg_ftp', 'account'),
-                               password_zamg_ftp,
-                               path=accounts_ini.get('zamg_ftp', 'directory'),
-                               )
-                publish_to_ftp(r"O:\AWSmessages_current\aws_data\AWS_300234061217540.txt",
-                               accounts_ini.get('uwn_ftp', 'server'),
-                               accounts_ini.get('uwn_ftp', 'account'),
-                               password_uwn_ftp,
-                               passive=False, # move to ini file
-                               )
-                #publish_to_ftp(r"O:\AWSmessages_current\aws_data\AWS_300234064121930*.txt",
-                               #'ftp.geus.dk',
-                               #'geus',
-                               #'geus',
-                               #path='geus/mcit/CC_testing',
-                               #)
-                #publish_to_ftp(r"O:\AWSmessages_current\aws_data\AWS_300234061217540*.txt",
-                               #'ftp.geus.dk',
-                               #'geus',
-                               #'geus',
-                               #path='geus/mcit/to_HISF',
-                               #)
-                #publish_to_ftp(r"O:\AWSmessages_current\aws_data\AWS_300234061299270.txt",
-                               #'ftp.geus.dk',
-                               #'geus',
-                               #'geus',
-                               #path='geus/mcit/to_GlacioBasis_Nuuk',
-                               #)
+
                 all_aws_tails = glob('\\\\geusnt1\\glaciologi\\AWSmessages_current\\aws_data\\tails\\*.txt')
-                exclude_patterns = ['-F.txt',
-                                    '-D.txt',
-                                    'UWN_AWS',
-                                    'ZAMG_AWS',
-                                    'NUK_K_AWS',
-                                    'XXX_AWS',
-                                    'ZAK_'] # FIXME: why were these excluded?
+                exclude_patterns = []
                 for t in all_aws_tails:
                     if any(map(t.count, exclude_patterns)):
                         continue
                     else:
-                        publish_to_ftp(t,
-                                       accounts_ini.get('dmi_ftp', 'server'),
-                                       accounts_ini.get('dmi_ftp', 'account'),
-                                       accounts_ini.get('dmi_ftp', 'password'),
-                                       #path='from_GEUS',
-                                       )
+                        # publish_to_ftp(t,
+                        #                accounts_ini.get('dmi_ftp', 'server'),
+                        #                accounts_ini.get('dmi_ftp', 'account'),
+                        #                accounts_ini.get('dmi_ftp', 'password'),
+                        #                #path='from_GEUS',
+                        #                )
+                        pass
                 
-                
-                if not hack: getmytrackerdata(accounts_ini.get('trackers', 'account'),
-                                              password_trackers,
-                                              accounts_ini.get('trackers', 'server'),
-                                              accounts_ini.getint('trackers', 'port'),
-                                              )
             except Exception, e:
                 traceback.print_exc(file=sys.stdout)
                 print time.asctime(), '- restarting in 5 minutes...'
