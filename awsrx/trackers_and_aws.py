@@ -451,12 +451,13 @@ class SbdMessage(EmailMessage):
                     sbd_data[entry] = decoder(key, (': ', ' = '), line)
 
         if attachment != None:
+            print('Attachment:')
             print(attachment)
             sbd_payload = attachment.get_payload(decode=True)
             # Rock7 SBD messages do not provide message size.
             #assert len(sbd_payload) == sbd_data['message_size']
             sbd_data['payload'] = sbd_payload
-            print(sbd_payload)
+            #print('Payload:', sbd_payload)
         else:
             sbd_data['payload'] = None
 
@@ -564,6 +565,7 @@ payload_fmt = { #Promice 2009, 2010
                 #5: [13, "tffffffffffff", "Promice 2009 summer message"], #this means: expect 13 values: 1 of type 't' and 12 of type 'f', and display this as "Promice..."
                 #6: [39, "tfffffffffffffffffffffffffgneffffffffff", "Promice 2009 summer message (+ instant.)"],
                 30: [24, "tfffffffffffffffffffffff", 'CASSANDRA FS2'],
+                32: [24, "tfffffffffffffffffffffff", 'CASSANDRA FS2'],
                 #placeholders for illegal format numbers (reserved for ascii decimal numbers, codes 48 for '0' to 57 for '9')
                 48: [0, '', 'placeholder for uncompressed ascii'],
                 49: [0, '', 'placeholder for uncompressed ascii'],
