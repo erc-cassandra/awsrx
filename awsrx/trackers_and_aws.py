@@ -576,9 +576,10 @@ payload_fmt = { #Promice 2009, 2010
                 54: [0, '', 'placeholder for uncompressed ascii'],
                 55: [0, '', 'placeholder for uncompressed ascii'],
                 56: [0, '', 'placeholder for uncompressed ascii'],
-                57: [0, '', 'placeholder for uncompressed ascii']
+                57: [0, '', 'placeholder for uncompressed ascii'],
                 #THIS IS THE FIRST UNUSED FORMAT (will match BinaryTxFormatRevision = 12 in the logger program)
                 #60: [1, "t", "new summer message"], #
+                60: [15, 'tffffffffffffff', 'BHP']
                 }
 
 for item in payload_fmt.items():
@@ -630,6 +631,7 @@ class AwsMessage(SbdMessage):
         IsTooShort = False
         if len(DataLine) == 0: raise AwsMessageError()
         if DataLine[0].isdigit():
+            print('here')
             IsKnownBinaryFormat = False
             MessageFormatNum = -9999
         else:
@@ -640,6 +642,11 @@ class AwsMessage(SbdMessage):
             except KeyError:
                 IsKnownBinaryFormat = False
                 UnknMsgFormNum = MessageFormatNum
+            # 'Bodge' for Breithornplateau - this site has the wrong BinaryFormat set logger-side
+            # Detect the site based on modem IMEI and force the payload format.
+            if self.data['sbd_data']['imei'] == 300434065667190:
+                IsKnownBinaryFormat = True
+                MessageFormat = self.payload_fmt[60]
             if IsKnownBinaryFormat:
                 print '%s-%s (binary)' %(self.data['sbd_data']['imei'], self.data['sbd_data']['momsn']) , MessageFormat[2]
                 ExpectedMsgLen = MessageFormat[3]
@@ -1064,7 +1071,7 @@ def main(argv):
                                               accounts_ini.get('aws', 'server'),
                                               accounts_ini.getint('aws', 'port'),
                                               )
-                sorter(modified_files)
+                #sorter(modified_files)
                 tailer(modified_files, 100, 'tails')
                 
                 #publish_to_ftp(r"O:\AWSmessages_current\aws_data\AWS_300234061852400.txt",
