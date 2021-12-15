@@ -869,7 +869,7 @@ def getmyawsdata(account=None,
     out_dir = env_setup.get('locations', 'out_dir')
 
     try:
-        with open('last_aws_uid.ini', 'r') as last_uid_f:
+        with open(os.path.join(loc, 'last_aws_uid.ini'), 'r') as last_uid_f:
             last_uid = int(last_uid_f.readline())
     except Exception:
         last_uid = int(raw_input('last_aws_uid.ini not found, first UID? (deafult = 1)') or 1)
@@ -916,7 +916,7 @@ def getmyawsdata(account=None,
                 #if write_header:
                     #out_f.write('%s\n' % headers.get(aws_msg.data['aws_data']['firstbyte_fmt'], ''))
     
-            with open('last_aws_uid.ini', 'w') as last_uid_f:
+            with open(os.path.join(loc, 'last_aws_uid.ini'), 'w') as last_uid_f:
                 last_uid_f.write(uid)
 
             
