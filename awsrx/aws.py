@@ -63,19 +63,21 @@ import json
 
 from payload_fmts import *
 
+loc = os.path.dirname(os.path.realpath(__file__))
+
 env_setup = SafeConfigParser()
-env_setup.readfp(open(os.path.join(os.path.realpath(__file__), 'env.ini')))
+env_setup.readfp(open(os.path.join(loc, 'env.ini')))
 
 programs_dir = env_setup.get('locations', 'programs_dir')
 
 credentials_file = "" # this should be somewhere secure
 accounts_ini = SafeConfigParser()
-accounts_ini.readfp(open(os.path.join(os.path.realpath(__file__),'accounts.ini')))
+accounts_ini.readfp(open(os.path.join(loc, 'accounts.ini')))
 #accounts_ini.read(credentials_file) #optional, contains passwords, keep private
 
 imei_file = 'imei2name.ini'
 imei_ini = SafeConfigParser()
-imei_ini.readfp(open(os.path.join(os.path.realpath(__file__),imei_file)))
+imei_ini.readfp(open(os.path.join(loc, imei_file)))
 imei_names = dict(imei_ini.items('imei_to_name'))
 
 allowed_sender_domains = json.loads(env_setup.get('settings', 'allowed_sender_domains'))
