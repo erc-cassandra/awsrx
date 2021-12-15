@@ -31,6 +31,7 @@
 #     22/07/2021  UniFR CASSANDRA implementation - stripped out GEUS-specific codes, 
 #                 updated message body format to match Rock7 delivery, 
 #                 added FS2 telemetry format.
+#     15/12/2021  Cleaned up code. Moved payload_fmts to another file, created env.ini.
 
 from sorter import sorter
 from tailer import tailer
@@ -58,102 +59,109 @@ import traceback
 from ConfigParser import SafeConfigParser
 from glob import glob
 from collections import OrderedDict
+import json
 
+from payload_fmts import *
 
-programs_dir = os.sep.join(('..', 'logger_programs'))
+env_setup = SafeConfigParser()
+env_setup.readfp(open('env.ini'))
+
+programs_dir = env_setup.get('locations', 'programs_dir')
 
 credentials_file = "" # this should be somewhere secure
 accounts_ini = SafeConfigParser()
 accounts_ini.readfp(open('accounts.ini'))
 #accounts_ini.read(credentials_file) #optional, contains passwords, keep private
 
-allowed_sender_domains = ['rockblock.rock7.com', 'unifr.ch']
-
 imei_file = 'imei2name.ini'
 imei_ini = SafeConfigParser()
 imei_ini.readfp(open(imei_file))
 imei_names = dict(imei_ini.items('imei_to_name'))
 
+allowed_sender_domains = json.loads(env_setup.get('settings', 'allowed_sender_domains'))
 
 
-def parse_declaration(norm_code):
-    '''
-    parse const and units declarations (not variables)
-    '''
     
-    name_value = norm_code.replace('const', '', 1).replace('units', '', 1)
-    name, value = name_value.split('=', 1)
-    return name.strip(), value.strip()
+def parse_cr(program):
 
-
-def parse_table_def(norm_code):
-    '''
-    parse table to extract its name, the variables names and averaging methods
-    '''
-    
-    table_def = norm_code.replace('datatable', '', 1).strip('()')
-    table_name, _ = table_def.split(',', 1)
-    return table_name.strip()
-
-
-def parse_table_var(norm_code, units):
-    '''
-    parse variable to extract its name, number format and averaging method
-    '''
-    
-    fmt_vars_count = {'0': 3,  #Mean horizontal wind speed, unit vector mean wind direction, and standard deviation of wind direction
-                      '1': 2,  #Mean horizontal wind speed and unit vector mean wind direction
-                      '2': 4,  #Mean horizontal wind speed, resultant mean wind speed, resultant mean wind direction, and standard deviation of wind direction
-                      '3': 1,  #Unit vector mean wind direction # WARNING: untested/unsupported
-                      '4': 2,  #Unit vector mean wind direction and standard deviation of wind direction
-                      }
-    
-    avg_meth, rest = norm_code.split('(', 1)
-    avg_meth = avg_meth.strip()
-    reps, var_name, params = rest.strip(' ()').split(',', 2)
-    reps = int(reps)
-    #print var_name
-    
-    if '(' in var_name:
-        var_name, _ = var_name.strip(')').split('(', 1)
-
-    if avg_meth == 'sample':
-        var_type = params
+    def parse_declaration(norm_code):
+        '''
+        parse const and units declarations (not variables)
+        '''
         
-    elif avg_meth == 'average':
-        var_type, _ = params.split(',')
+        name_value = norm_code.replace('const', '', 1).replace('units', '', 1)
+        name, value = name_value.split('=', 1)
+        return name.strip(), value.strip()
+
+
+    def parse_table_def(norm_code):
+        '''
+        parse table to extract its name, the variables names and averaging methods
+        '''
         
-    if avg_meth == 'windvector':
-        fmt = params[-1]
-        vars_count = fmt_vars_count[fmt]
-        if vars_count < 2: raise Warning('untested/unsupported var_count < 2')
-        _, var_type, _ = params.split(',', 2)
-        reps = reps * vars_count
-    
-    table_vars = OrderedDict()
-    for n in range(1, reps+1):
-        if reps > 1:
-            name = '%s_%i' %(var_name, n)
-        else:
-            name = var_name
-        if not var_name.endswith('dataterminator'):
-            table_vars[name] = [avg_meth, var_type, units.get(name, '')]
+        table_def = norm_code.replace('datatable', '', 1).strip('()')
+        table_name, _ = table_def.split(',', 1)
+        return table_name.strip()
+
+
+    def parse_table_var(norm_code, units):
+        '''
+        parse variable to extract its name, number format and averaging method
+        '''
         
-    return table_vars
+        fmt_vars_count = {'0': 3,  #Mean horizontal wind speed, unit vector mean wind direction, and standard deviation of wind direction
+                          '1': 2,  #Mean horizontal wind speed and unit vector mean wind direction
+                          '2': 4,  #Mean horizontal wind speed, resultant mean wind speed, resultant mean wind direction, and standard deviation of wind direction
+                          '3': 1,  #Unit vector mean wind direction # WARNING: untested/unsupported
+                          '4': 2,  #Unit vector mean wind direction and standard deviation of wind direction
+                          }
+        
+        avg_meth, rest = norm_code.split('(', 1)
+        avg_meth = avg_meth.strip()
+        reps, var_name, params = rest.strip(' ()').split(',', 2)
+        try:
+            reps = int(reps)
+        except ValueError:
+            reps = int(constants[reps])
+                    
+        if '(' in var_name:
+            var_name, _ = var_name.strip(')').split('(', 1)
+
+        if avg_meth == 'sample':
+            var_type = params
+            
+        elif avg_meth == 'average':
+            var_type, _ = params.split(',')
+            
+        if avg_meth == 'windvector':
+            fmt = params[-1]
+            vars_count = fmt_vars_count[fmt]
+            if vars_count < 2: raise Warning('untested/unsupported var_count < 2')
+            _, var_type, _ = params.split(',', 2)
+            reps = reps * vars_count
+        
+        table_vars = OrderedDict()
+        for n in range(1, reps+1):
+            if reps > 1:
+                name = '%s_%i' %(var_name, n)
+            else:
+                name = var_name
+            if not var_name.endswith('dataterminator'):
+                table_vars[name] = [avg_meth, var_type, units.get(name, '')]
+            
+        return table_vars
 
 
-def parse_fieldnames(norm_code):
-    '''
-    parse FieldNames (the otional descriptions are not supported)
-    '''
+    def parse_fieldnames(norm_code):
+        '''
+        parse FieldNames (the otional descriptions are not supported)
+        '''
+        
+        names = norm_code.replace('fieldnames', '', 1).strip('(" )').split(',')
+        
+        return names
     
-    names = norm_code.replace('fieldnames', '', 1).strip('(" )').split(',')
-    
-    return names
-
-    
-def parse_cr1(program):
-    
+    # ====================
     # for now it does not look at aliases so it can't always properly name 
     # variables and associate units. Also, turning everything lowercase for
     # ease of parsing alters the names of variables and units
@@ -210,10 +218,9 @@ def build_headers(b, tables):
     msg_type = b % 5
     header = ''
     units = ''
-    
     if msg_type == 0 or msg_type == 1:
         for tn in tables:
-            if 'summer' or '60min'in tn.lower(): #it's always summer for Allan's 60 minutes
+            if ('summer' or '60min') in tn.lower(): #it's always summer for Allan's 60 minutes
                 header += ','.join(tables[tn].keys())
                 units += ','.join(['%s (%s)' % (averaging, units) for
                                    averaging, vartype, units in
@@ -256,7 +263,7 @@ def parse_programs(programs_dir):
     headers = {}
     
     for p in programs_dir:
-        binarytxformatid, constants, units, tables = parse_cr1(p)
+        binarytxformatid, constants, units, tables = parse_cr(p)
         for b in range(binarytxformatid * 5, binarytxformatid * 5 + 5):
             if b in headers:
                 continue  #raise Warning('format %i already known' %b)
@@ -264,16 +271,6 @@ def parse_programs(programs_dir):
             #print b, headers[b]
     
     return headers
-
-
-#if __name__ == '__main__':
-    
-    #from pprint import pprint
-    
-    #programs_dir = glob('*.cr1')
-    
-    #sys.exit(parse_programs(programs_dir))
-
 
 
 
@@ -414,7 +411,6 @@ class SbdMessage(EmailMessage):
         sender = self.data['email_data']['from']
         # There is a trailing '>' character, remove it.
         sender_domain = sender.split('@')[1][:-1]
-        print(sender_domain)
         if sender_domain not in allowed_sender_domains:
             raise NotSbdMessageError("'sbdservice' not in %s" % sender)
         if len(self.data['email_data']['attached_filenames']) == 0:
@@ -427,16 +423,16 @@ class SbdMessage(EmailMessage):
 
 
     def parse_sbd(self):
-        print(self._email_msg.get_payload())
+        #print(self._email_msg.get_payload())
         if self._email_msg.is_multipart():
-            print('multipart')
+            #print('multipart')
         #try:
             content, attachment = self._email_msg.get_payload()
             assert not content.is_multipart() #else the decode=True on the next line makes it return None and break the rest of the parsing
             body = content.get_payload(decode=True)
 
         else:
-            print('not multipart')
+            #print('not multipart')
         #except ValueError:
             content = self._email_msg.get_payload(decode=True)#[0]
             attachment = None  #sometimes an email arrives with no .sbd attached
@@ -451,8 +447,8 @@ class SbdMessage(EmailMessage):
                     sbd_data[entry] = decoder(key, (': ', ' = '), line)
 
         if attachment != None:
-            print('Attachment:')
-            print(attachment)
+            #print('Attachment:')
+            #print(attachment)
             sbd_payload = attachment.get_payload(decode=True)
             # Rock7 SBD messages do not provide message size.
             #assert len(sbd_payload) == sbd_data['message_size']
@@ -528,70 +524,6 @@ class SbdMessage(EmailMessage):
         return location
 
 
-FilterMalformed = True
-
-# *** START OF MESSAGE FORMAT SPECIFICATIONS FOR NORMAL USERS ***
-# Here the format of the binary data is defined. The keys of the FormatSpec dictionary
-# come in groups of 5 (5...9, 10...14, and so on) and each group corresponds to the set of
-# messages that can be transmitted by a given AWS (summer, winter, diagnostic, ... see below)
-# The BinaryTxFormatRevision setting in the logger program need to match with the keys
-# of the FormatDict dictionary, so that BinaryTxFormatRevision = 1 corresponds to keys 5...9
-# and BinaryTxFormatRevision = 5 to keys 25...29. This is required because the receiving
-# end has no way to tell where and what kind of values are encoded in the binary message.
-# The possible value types are as follow:
-# f = value encoded as 2 bytes base-10 floating point (GFP2)
-# l = value encoded as 4 bytes two's complement integer (GLI4)
-# t = timestamp as seconds since 1990-01-01 00:00:00 +0000 encoded as GLI4
-# g = GPS time encoded as GLI4
-# n = GPS latitude encoded as GLI4
-# e = GPS latitude encoded as GLI4
-# It is also possible to decode any of these in debug mode which adds to the decoded value the 
-# raw bytes as characters, as hex and as bit string, in brackets, e.g. an FP2 values of -1600 
-# will be written out as -1600(‘ @ = 0xE6 0x40 = 0b11100110 0b01000000) when using 'F' instead 
-# of 'f'. Becasue no check is done, a line may get truncated if some special bytes are 
-# encountered, probably things like null characters, end of line, escape codes etc. I'm also 
-# not sure if/how differently it may work on python 3 or if the data file displays differently 
-# based on the locale/character encoding set on the pc.
-
-type_len = {'f': 2, # value encoded as 2 bytes base-10 floating point (GFP2)
-            'l': 4, # value encoded as 4 bytes two's complement integer (GLI4)
-            't': 4, # timestamp as seconds since 1990-01-01 00:00:00 +0000 encoded as GLI4
-            'g': 4, # GPS time encoded as GLI4
-            'n': 4, # GPS latitude encoded as GLI4
-            'e': 4, # GPS latitude encoded as GLI4
-            }
-
-payload_fmt = { #Promice 2009, 2010 
-                #5: [13, "tffffffffffff", "Promice 2009 summer message"], #this means: expect 13 values: 1 of type 't' and 12 of type 'f', and display this as "Promice..."
-                #6: [39, "tfffffffffffffffffffffffffgneffffffffff", "Promice 2009 summer message (+ instant.)"],
-                30: [24, "tfffffffffffffffffffffff", 'CASSANDRA FS2'],
-                32: [24, "tfffffffffffffffffffffff", 'CASSANDRA FS2'],
-                #placeholders for illegal format numbers (reserved for ascii decimal numbers, codes 48 for '0' to 57 for '9')
-                48: [0, '', 'placeholder for uncompressed ascii'],
-                49: [0, '', 'placeholder for uncompressed ascii'],
-                50: [0, '', 'placeholder for uncompressed ascii'],
-                51: [0, '', 'placeholder for uncompressed ascii'],
-                52: [0, '', 'placeholder for uncompressed ascii'],
-                53: [0, '', 'placeholder for uncompressed ascii'],
-                54: [0, '', 'placeholder for uncompressed ascii'],
-                55: [0, '', 'placeholder for uncompressed ascii'],
-                56: [0, '', 'placeholder for uncompressed ascii'],
-                57: [0, '', 'placeholder for uncompressed ascii'],
-                #THIS IS THE FIRST UNUSED FORMAT (will match BinaryTxFormatRevision = 12 in the logger program)
-                #60: [1, "t", "new summer message"], #
-                60: [15, 'tffffffffffffff', 'BHP']
-                }
-
-for item in payload_fmt.items():
-    key, val = item
-    var_count, var_def, comment = val
-    assert var_count == len(var_def)
-    bytes_count = 0
-    for var in var_def:
-        bytes_count += type_len[var.lower()]
-    payload_fmt[key].append(bytes_count + 1) #add the format byte
-
-
 class AwsMessage(SbdMessage):
 
     def __init__(self, aws_sbd):
@@ -646,7 +578,14 @@ class AwsMessage(SbdMessage):
             # Detect the site based on modem IMEI and force the payload format.
             if self.data['sbd_data']['imei'] == 300434065667190:
                 IsKnownBinaryFormat = True
-                MessageFormat = self.payload_fmt[60]
+                if MessageFormatNum == 30:
+                    MessageFormatNum = 60
+                    MessageFormat = self.payload_fmt[60]
+                elif MessageFormatNum == 32:
+                    MessageFormatNum = 62
+                    MessageFormat = self.payload_fmt[62]
+                else:
+                    raise ValueError('Unknown BHP format.')
             if IsKnownBinaryFormat:
                 print '%s-%s (binary)' %(self.data['sbd_data']['imei'], self.data['sbd_data']['momsn']) , MessageFormat[2]
                 ExpectedMsgLen = MessageFormat[3]
@@ -837,6 +776,8 @@ class AwsMessage(SbdMessage):
         return '(%s = %s = %s)' %(' '.join(us), ' '.join(hs), ' '.join(bs))
 
 
+
+
 def connect(host, port, user, passw):
 
     assert ssl.RAND_status()
@@ -914,7 +855,8 @@ def getmyawsdata(account=None,
     print 'parsing %s for message formats' %', '.join(programs)
     
     #for p in programs:
-    headers = parse_programs(glob(os.sep.join((programs_dir, '*.cr1*'))))
+    headers = parse_programs(glob(os.sep.join((programs_dir, '*.cr*'))))
+    print(headers)
     print "found definitions for %s 'first byte' formats" %', '.join([str(k) for k in sorted(headers.keys())])
     print 'AWS data from server %s, account %s' %(server, account)
     
@@ -923,7 +865,7 @@ def getmyawsdata(account=None,
     server = server or raw_input('server: ')
     port = port or raw_input('port: ')
     
-    out_dir = os.sep.join(('/scratch', 'aws_data'))
+    out_dir = env_setup.get('locations', 'out_dir')
 
     try:
         with open('last_aws_uid.ini', 'r') as last_uid_f:
@@ -951,8 +893,6 @@ def getmyawsdata(account=None,
             except ValueError, e:
                 print e
                 continue
-            
-            #if aws_msg.data['sbd_data']['imei'] != 300234061852400: continue
         
             #remembering the uid allows skipping messages certainly done already,
             #but a crash between the data save and the update of last_uid will
@@ -963,15 +903,17 @@ def getmyawsdata(account=None,
                                        aws_msg.data['aws_data']['flag'])
             out_path = os.sep.join((out_dir, out_fn))
             
-            aws_name = imei_names.get(aws_msg.data['sbd_data']['imei'], 'UNKNOWN')
+            aws_name = imei_names.get(str(aws_msg.data['sbd_data']['imei']), 'UNKNOWN')
             
             #write_header = out_path not in  modified_files.keys()
             #
+            print('fmt', headers.get(aws_msg.data['aws_data']['firstbyte_fmt'], ''))
             modified_files[out_path] = [aws_name, 
                                         '%s' % headers.get(aws_msg.data['aws_data']['firstbyte_fmt'], '')]
     
             with open(out_path, mode='a') as out_f:
                 out_f.write('%s\n' %aws_msg.data['aws_data']['decoded_string'].encode('Latin-1'))
+                #print('WRITING: ', aws_msg.data['aws_data']['decoded_string'].encode('Latin-1'))
                 #if write_header:
                     #out_f.write('%s\n' % headers.get(aws_msg.data['aws_data']['firstbyte_fmt'], ''))
     
@@ -1043,11 +985,7 @@ class LockFile(object): #TODO: could this be nicer to use as a context manager?
 
 def main(argv):
     
-    # periodically fetch data, should be rewritten to get all it needs from the ini files 
-    
-    #print os.getcwd()
-    
-    interval = 1800
+    interval = env_setup.getint('settings', 'interval')
     
     try:
         lock = LockFile()
@@ -1071,29 +1009,8 @@ def main(argv):
                                               accounts_ini.get('aws', 'server'),
                                               accounts_ini.getint('aws', 'port'),
                                               )
-                #sorter(modified_files)
-                tailer(modified_files, 100, 'tails')
-                
-                #publish_to_ftp(r"O:\AWSmessages_current\aws_data\AWS_300234061852400.txt",
-                               #'ftp.geus.dk',
-                               #'geus',
-                               #'geus',
-                               #path='geus/mcit/to_ZAMG_Vienna',
-                               #)
-
-                all_aws_tails = glob('\\\\geusnt1\\glaciologi\\AWSmessages_current\\aws_data\\tails\\*.txt')
-                exclude_patterns = []
-                for t in all_aws_tails:
-                    if any(map(t.count, exclude_patterns)):
-                        continue
-                    else:
-                        # publish_to_ftp(t,
-                        #                accounts_ini.get('dmi_ftp', 'server'),
-                        #                accounts_ini.get('dmi_ftp', 'account'),
-                        #                accounts_ini.get('dmi_ftp', 'password'),
-                        #                #path='from_GEUS',
-                        #                )
-                        pass
+                sorter(modified_files)
+                tailer(modified_files, 100, env_setup.get('locations', 'tails'))
                 
             except Exception, e:
                 traceback.print_exc(file=sys.stdout)
@@ -1105,6 +1022,18 @@ def main(argv):
         
     finally: #still skipped if shell or process are killed
         lock.release()
+
+
+FilterMalformed = True
+
+for item in payload_fmt.items():
+    key, val = item
+    var_count, var_def, comment = val
+    assert var_count == len(var_def)
+    bytes_count = 0
+    for var in var_def:
+        bytes_count += type_len[var.lower()]
+    payload_fmt[key].append(bytes_count + 1) #add the format byte
 
 
 if __name__ == '__main__':
