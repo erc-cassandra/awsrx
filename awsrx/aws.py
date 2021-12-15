@@ -856,7 +856,6 @@ def getmyawsdata(account=None,
     
     #for p in programs:
     headers = parse_programs(glob(os.sep.join((programs_dir, '*.cr*'))))
-    print(headers)
     print "found definitions for %s 'first byte' formats" %', '.join([str(k) for k in sorted(headers.keys())])
     print 'AWS data from server %s, account %s' %(server, account)
     
@@ -906,8 +905,6 @@ def getmyawsdata(account=None,
             aws_name = imei_names.get(str(aws_msg.data['sbd_data']['imei']), 'UNKNOWN')
             
             #write_header = out_path not in  modified_files.keys()
-            #
-            print('fmt', headers.get(aws_msg.data['aws_data']['firstbyte_fmt'], ''))
             modified_files[out_path] = [aws_name, 
                                         '%s' % headers.get(aws_msg.data['aws_data']['firstbyte_fmt'], '')]
     
