@@ -937,7 +937,7 @@ def getmyawsdata(account=None,
 
 class LockFile(object): #TODO: could this be nicer to use as a context manager?
     
-    def __init__(self, file_path='lock.txt', acquire_later=False):
+    def __init__(self, file_path=os.path.join(loc, 'lock.txt'), acquire_later=False):
         
         self.file_path = file_path
         self.lock = None
