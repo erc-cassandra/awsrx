@@ -129,7 +129,7 @@ def parse_cr(program):
         if '(' in var_name:
             var_name, _ = var_name.strip(')').split('(', 1)
 
-        if avg_meth == 'sample':
+        if avg_meth == ('sample' or 'minimum'):
             var_type = params
             
         elif avg_meth == 'average':
