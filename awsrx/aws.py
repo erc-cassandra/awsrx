@@ -202,6 +202,8 @@ def parse_cr(program):
                                            % (ln, p))
                 elif any((norm_code.startswith('sample'),
                           norm_code.startswith('average'),
+                          norm_code.startswith('minimum'),
+                          norm_code.startswith('maximum'),
                           norm_code.startswith('windvector'))):
                     this_table_vars.update(parse_table_var(norm_code, units))
                 elif norm_code.startswith('fieldnames'):
