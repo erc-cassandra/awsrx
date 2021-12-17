@@ -872,7 +872,8 @@ def getmyawsdata(account=None,
         with open(os.path.join(loc, 'last_aws_uid.ini'), 'r') as last_uid_f:
             last_uid = int(last_uid_f.readline())
     except Exception:
-        last_uid = int(raw_input('last_aws_uid.ini not found, first UID? (deafult = 1)') or 1)
+        last_uid = 1 #
+        #int(raw_input('last_aws_uid.ini not found, first UID? (deafult = 1)') or 1)
 
     try:
         mail_server = connect(server, port, account, password)
