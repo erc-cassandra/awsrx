@@ -49,10 +49,12 @@ payload_fmt = { #Promice 2009, 2010
                 #THIS IS THE FIRST UNUSED FORMAT (will match BinaryTxFormatRevision = 12 in the logger program)
                 #60: [1, "t", "new summer message"], #
                 60: [15, 'tffffffffffffff', 'BHP Summer'],
-                62: [15, 'tffffffffffffff', 'BHP Winter']
-                # BinaryTxFormatRevision 14 - CASSANDRA FS 1x thermistor string
-                #70:
-                # BinaryTxFormatRevision 15 - CASSANDRA FS 2x thermistor strings
-                #75:
-                # What about additional TDRs?
+                62: [15, 'tffffffffffffff', 'BHP Winter'],
+                # BinaryTxFormatRevision 14 - CASSANDRA FS 12x EC; t=time; b=batt; c=temp; h=height; number=TDR; e=EC
+                #         tbchhh111111222222333333444444555555eeeeeeeeeeee  
+                70: [48, 'tfffffffffffffffffffffffffffffffffffffffffffffff', 'FS Summer EC12'],
+                72: [36, 'tfffffffffffffffffffffffffffffffffff', 'FS Winter EC12'],
+                # BinaryTxFormatRevision 15 - CASSANDRA FS 12x EC
+                75: [52, 'tfffffffffffffffffffffffffffffffffffffffffffffffffff', 'FS Summer EC16'],
+                77: [36, 'tfffffffffffffffffffffffffffffffffff', 'FS Winter EC16']
                 }
