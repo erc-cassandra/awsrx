@@ -578,18 +578,20 @@ class AwsMessage(SbdMessage):
             except KeyError:
                 IsKnownBinaryFormat = False
                 UnknMsgFormNum = MessageFormatNum
+            print('dl0', ord(DataLine[0]))
+            print('format:', MessageFormatNum)
             # 'Bodge' for Breithornplateau - this site has the wrong BinaryFormat set logger-side
             # Detect the site based on modem IMEI and force the payload format.
-            if self.data['sbd_data']['imei'] == 300434065667190:
-                IsKnownBinaryFormat = True
-                if MessageFormatNum == 30:
-                    MessageFormatNum = 60
-                    MessageFormat = self.payload_fmt[60]
-                elif MessageFormatNum == 32:
-                    MessageFormatNum = 62
-                    MessageFormat = self.payload_fmt[62]
-                else:
-                    raise ValueError('Unknown BHP format.')
+            # if self.data['sbd_data']['imei'] == 300434065667190:
+            #     IsKnownBinaryFormat = True
+            #     if MessageFormatNum == 30:
+            #         MessageFormatNum = 60
+            #         MessageFormat = self.payload_fmt[60]
+            #     elif MessageFormatNum == 32:
+            #         MessageFormatNum = 62
+            #         MessageFormat = self.payload_fmt[62]
+            #     else:
+            #         raise ValueError('Unknown BHP format.')
             if IsKnownBinaryFormat:
                 print '%s-%s (binary)' %(self.data['sbd_data']['imei'], self.data['sbd_data']['momsn']) , MessageFormat[2]
                 ExpectedMsgLen = MessageFormat[3]

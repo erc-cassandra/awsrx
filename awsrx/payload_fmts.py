@@ -46,15 +46,20 @@ payload_fmt = { #Promice 2009, 2010
                 55: [0, '', 'placeholder for uncompressed ascii'],
                 56: [0, '', 'placeholder for uncompressed ascii'],
                 57: [0, '', 'placeholder for uncompressed ascii'],
+
                 #THIS IS THE FIRST UNUSED FORMAT (will match BinaryTxFormatRevision = 12 in the logger program)
+                # HAVE TO ADD 10!! (stupid bug in the sending side)
                 #60: [1, "t", "new summer message"], #
-                60: [15, 'tffffffffffffff', 'BHP Summer'],
-                62: [15, 'tffffffffffffff', 'BHP Winter'],
+                70: [15, 'tffffffffffffff', 'BHP Summer'],
+                72: [15, 'tffffffffffffff', 'BHP Winter'],
                 # BinaryTxFormatRevision 14 - CASSANDRA FS 12x EC; t=time; b=batt; c=temp; h=height; number=TDR; e=EC
                 #         tbchhh111111222222333333444444555555eeeeeeeeeeee  
-                70: [48, 'tfffffffffffffffffffffffffffffffffffffffffffffff', 'FS Summer EC12'],
-                72: [36, 'tfffffffffffffffffffffffffffffffffff', 'FS Winter EC12'],
+                80: [48, 'tfffffffffffffffffffffffffffffffffffffffffffffff', 'FS Summer EC12'],
+                82: [36, 'tfffffffffffffffffffffffffffffffffff', 'FS Winter EC12'],
                 # BinaryTxFormatRevision 15 - CASSANDRA FS 12x EC
-                75: [52, 'tfffffffffffffffffffffffffffffffffffffffffffffffffff', 'FS Summer EC16'],
-                77: [36, 'tfffffffffffffffffffffffffffffffffff', 'FS Winter EC16']
+                95: [52, 'tfffffffffffffffffffffffffffffffffffffffffffffffffff', 'FS Summer EC16'],
+                97: [36, 'tfffffffffffffffffffffffffffffffffff', 'FS Winter EC16'],
+                # BinaryTxFormatRevision 16 - CASSANDRA FS4 (no EC, 4x TDR)
+                100: [31, 'tffffffffffffffffffffffffffffff', 'FS Summer noEC'],
+                102: [31, 'tffffffffffffffffffffffffffffff', 'FS Winter noEC']
                 }
