@@ -50,16 +50,17 @@ payload_fmt = { #Promice 2009, 2010
                 #THIS IS THE FIRST UNUSED FORMAT (will match BinaryTxFormatRevision = 12 in the logger program)
                 # HAVE TO ADD 10!! (stupid bug in the sending side)
                 #60: [1, "t", "new summer message"], #
-                70: [15, 'tffffffffffffff', 'BHP Summer'],
-                72: [15, 'tffffffffffffff', 'BHP Winter'],
+                70: [54, 'tfffffffffffffffffffffffffffffffffffffffffffffffffffff', 'FS1 TDRx6 Summer'],
+                72: [42, 'tfffffffffffffffffffffffffffffffffffffffff', 'FS1 TDRx6 Winter'],
                 # BinaryTxFormatRevision 14 - CASSANDRA FS 12x EC; t=time; b=batt; c=temp; h=height; number=TDR; e=EC
                 #         tbchhh111111222222333333444444555555eeeeeeeeeeee  
                 80: [48, 'tfffffffffffffffffffffffffffffffffffffffffffffff', 'FS Summer EC12'],
                 82: [36, 'tfffffffffffffffffffffffffffffffffff', 'FS Winter EC12'],
-                # BinaryTxFormatRevision 15 - CASSANDRA FS 12x EC
-                95: [52, 'tfffffffffffffffffffffffffffffffffffffffffffffffffff', 'FS Summer EC16'],
-                97: [36, 'tfffffffffffffffffffffffffffffffffff', 'FS Winter EC16'],
-                # BinaryTxFormatRevision 16 - CASSANDRA FS4 (no EC, 4x TDR)
-                100: [31, 'tffffffffffffffffffffffffffffff', 'FS Summer noEC'],
-                102: [31, 'tffffffffffffffffffffffffffffff', 'FS Winter noEC']
+                # BinaryTxFormatRevision 17, 2023 - FS1
+                95: [54, 'tfffffffffffffffffffffffffffffffffffffffffffffffffffff', 'FS1-23 Summer'],
+                97: [42, 'tfffffffffffffffffffffffffffffffffffffffff', 'FS1-23 Winter EC'],
+                # BinaryTxFormatRevision 18 - CASSANDRA FS4 (no EC, 5x TDR)
+                100: [36, 'tfffffffffffffffffffffffffffffffffff', 'FS Summer noEC'],
+                102: [36, 'tfffffffffffffffffffffffffffffffffff', 'FS Winter noEC']
                 }
+
