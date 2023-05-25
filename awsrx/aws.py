@@ -269,9 +269,10 @@ def parse_programs(programs_dir):
     for p in programs_dir:
         binarytxformatid, constants, units, tables = parse_cr(p)
         for b in range(binarytxformatid * 5, binarytxformatid * 5 + 5):
-            if b in headers:
+            bb = b + 10 ### BODGE BODGE BODGE - deals with formats somehows being shifted by 10...
+            if bb in headers:
                 continue  #raise Warning('format %i already known' %b)
-            headers[b] = build_headers(b, tables)
+            headers[bb] = build_headers(bb, tables)
             #print b, headers[b]
     
     return headers
@@ -580,18 +581,19 @@ class AwsMessage(SbdMessage):
                 UnknMsgFormNum = MessageFormatNum
             print('dl0', ord(DataLine[0]))
             print('format:', MessageFormatNum)
-            # 'Bodge' for Breithornplateau - this site has the wrong BinaryFormat set logger-side
+            # 'Bodge' for 2023-4 wrong BinaryFormats often set logger-side
             # Detect the site based on modem IMEI and force the payload format.
-            # if self.data['sbd_data']['imei'] == 300434065667190:
-            #     IsKnownBinaryFormat = True
-            #     if MessageFormatNum == 30:
-            #         MessageFormatNum = 60
-            #         MessageFormat = self.payload_fmt[60]
-            #     elif MessageFormatNum == 32:
-            #         MessageFormatNum = 62
-            #         MessageFormat = self.payload_fmt[62]
-            #     else:
-            #         raise ValueError('Unknown BHP format.')
+            imei = self.data['sbd_data']['imei']
+            if imei == 300434066351550: #FS4
+                IsKnownBinaryFormat = True
+                if MessageFormatNum == 80:
+                    MessageFormatNum = 100
+                    MessageFormat = self.payload_fmt[100]
+                elif MessageFormatNum == 82:
+                    MessageFormatNum = 102
+                    MessageFormat = self.payload_fmt[102]
+                else:
+                    raise ValueError('Unknown FS4 format.')
             if IsKnownBinaryFormat:
                 print '%s-%s (binary)' %(self.data['sbd_data']['imei'], self.data['sbd_data']['momsn']) , MessageFormat[2]
                 ExpectedMsgLen = MessageFormat[3]
@@ -911,15 +913,17 @@ def getmyawsdata(account=None,
             
             aws_name = imei_names.get(str(aws_msg.data['sbd_data']['imei']), 'UNKNOWN')
             
-            #write_header = out_path not in  modified_files.keys()
+            write_header = not os.path.exists(out_path) #out_path not in modified_files.keys()
+            print('headers:', headers.get(aws_msg.data['aws_data']['firstbyte_fmt'], ''))
             modified_files[out_path] = [aws_name, 
                                         '%s' % headers.get(aws_msg.data['aws_data']['firstbyte_fmt'], '')]
     
             with open(out_path, mode='a') as out_f:
+                if write_header:
+                    out_f.write('%s\n' % headers.get(aws_msg.data['aws_data']['firstbyte_fmt'], ''))
                 out_f.write('%s\n' %aws_msg.data['aws_data']['decoded_string'].encode('Latin-1'))
                 #print('WRITING: ', aws_msg.data['aws_data']['decoded_string'].encode('Latin-1'))
-                #if write_header:
-                    #out_f.write('%s\n' % headers.get(aws_msg.data['aws_data']['firstbyte_fmt'], ''))
+                
     
             with open(os.path.join(loc, 'last_aws_uid.ini'), 'w') as last_uid_f:
                 last_uid_f.write(uid)
